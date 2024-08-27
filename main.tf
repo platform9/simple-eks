@@ -61,7 +61,7 @@ locals {
   eks_nodegroup_ami = data.aws_ssm_parameter.al2023_eks.value
   public_subnet_cidr = cidrsubnet(var.aws_vpc_cidr,2,0)
   private_subnet_cidr = cidrsubnet(var.aws_vpc_cidr,2,2)
-  admin_cidrs = coalescelist(var.admin_ip_cidrs, ["${data.http.admin_ip.response_body}/32"])
+  admin_ip_cidr = coalesce(var.admin_ip_cidr, "${data.http.admin_ip.response_body}/32")
   create_vpc = var.aws_vpc_id == "" ? true : false
   create_subnets_public = flatten(var.eks_subnets_public) == [] ? true : false
   create_subnets_private = flatten(var.eks_subnets_private) == [] ? true : false
@@ -69,6 +69,8 @@ locals {
   vpc_cidr = data.aws_vpc.simple_eks.cidr_block
   subnets_public = local.create_subnets_public ? aws_subnet.eks_public[*].id : var.eks_subnets_public
   subnets_private = local.create_subnets_private ? aws_subnet.eks_private[*].id : var.eks_subnets_private
+  create_eks_admin_sg = var.eks_admin_sg == "" ? true : false
+  eks_admin_sg = local.create_eks_admin_sg ? aws_security_group.eks_access[0].id : var.eks_admin_sg
   create_eks_ssh_keypair = var.eks_ec2_ssh_keypair == "" ? true : false
   eks_ec2_ssh_keypair = coalesce(var.eks_ec2_ssh_keypair,aws_key_pair.eks_instance[0].key_name)
 }
@@ -93,7 +95,7 @@ resource "local_sensitive_file" "ssh_private_key" {
 }
 
 resource "aws_vpc" "simple_eks" {
-  count = var.aws_vpc_id == "" ? 1 : 0
+  count = local.create_vpc ? 1 : 0
   cidr_block = var.aws_vpc_cidr
   tags = {
     Name = local.unique_name
@@ -195,17 +197,33 @@ resource "aws_route_table_association" "eks_private_nat" {
   route_table_id = aws_route_table.eks_private_nat[0].id
 }
 
-resource "aws_security_group" "admin_access" {
+resource "aws_security_group" "eks_access" {
+  count = local.create_eks_admin_sg ? 1 : 0
   name = "${local.unique_name}-admin"
   vpc_id = local.vpc_id
 }
 
-resource "aws_vpc_security_group_ingress_rule" "admin_ssh" {
-  for_each = toset(local.admin_cidrs)
-  security_group_id = aws_security_group.admin_access.id
-  cidr_ipv4 = each.key
+resource "aws_vpc_security_group_egress_rule" "allow_all_outbound" {
+  security_group_id = local.eks_admin_sg
+  cidr_ipv4 = "0.0.0.0/0"
+  ip_protocol = "-1"
+}
+
+resource "aws_vpc_security_group_ingress_rule" "admin_ssh_inbound" {
+  count = local.create_eks_admin_sg ? 1 : 0
+  security_group_id = local.eks_admin_sg
+  cidr_ipv4 = local.admin_ip_cidr
   from_port = 22
   to_port = 22
+  ip_protocol = "tcp"
+}
+
+resource "aws_vpc_security_group_ingress_rule" "eks_inbound" {
+  for_each = local.create_eks_admin_sg ? toset([for port in var.eks_ingress_ports: tostring(port)]) : toset([])
+  security_group_id = local.eks_admin_sg
+  cidr_ipv4 = local.admin_ip_cidr
+  from_port = each.key
+  to_port = each.key
   ip_protocol = "tcp"
 }
 
@@ -251,7 +269,7 @@ resource "aws_eks_cluster" "simple_eks" {
 
   vpc_config {
     subnet_ids = local.subnets_public
-    public_access_cidrs = local.admin_cidrs
+    public_access_cidrs = [ local.admin_ip_cidr ]
   }
 
   version = var.eks_k8s_version == "" ? null : var.eks_k8s_version
@@ -330,13 +348,15 @@ data "aws_ami" "al2023" {
   owners = ["amazon"]
 }
 
+/*
 resource "aws_instance" "eks_debug" {
   ami = coalesce(var.eks_debug_instance_ami,data.aws_ami.al2023.id)
   instance_type = var.eks_debug_instance_type
   subnet_id = local.subnets_public[0]
   key_name = local.eks_ec2_ssh_keypair
-  security_groups = [ aws_security_group.admin_access.id ]
+  security_groups = [ local.eks_admin_sg ]
   tags = {
     Name = "${local.unique_name}-debug"
   }
 }
+*/

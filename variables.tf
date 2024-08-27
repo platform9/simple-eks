@@ -19,9 +19,9 @@ variable "eks_ec2_ssh_keypair" {
   default = ""
 }
 
-variable "admin_ip_cidrs" {
-  type = list(string)
-  default = []
+variable "admin_ip_cidr" {
+  type = string
+  default = ""
 }
 
 variable "aws_region" {
@@ -66,6 +66,16 @@ variable "eks_subnets_private" {
 variable "eks_subnets_private_tags" {
   type = map(string)
   default = {}
+}
+
+variable "eks_admin_sg" {
+  type = string
+  default = ""
+}
+
+variable "eks_ingress_ports" {
+  type = list(number)
+  default = [ 80, 443 ]
 }
 
 variable "eks_debug_instance_type" {
