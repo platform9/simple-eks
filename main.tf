@@ -336,7 +336,7 @@ resource "aws_eks_node_group" "ec2" {
 }
 
 # It should not be necessary to uncomment the following except to debug EKS worker nodes in a private subnet.
-
+/*
 data "aws_ami" "al2023" {
   most_recent = true
 
@@ -348,7 +348,6 @@ data "aws_ami" "al2023" {
   owners = ["amazon"]
 }
 
-/*
 resource "aws_instance" "eks_debug" {
   ami = coalesce(var.eks_debug_instance_ami,data.aws_ami.al2023.id)
   instance_type = var.eks_debug_instance_type
