@@ -22,6 +22,10 @@ output "aws_eks_region" {
   value = regex(".*\\.([a-z0-9-]*)\\Q.eks.amazonaws.com\\E", aws_eks_cluster.simple_eks.endpoint)[0]
 }
 
+output "awk_eks_cluster_security_group" {
+  value = aws_eks_cluster.simple_eks.cluster_security_group_id
+}
+
 output "kubeconfig_certificate_authority_data" {
   value = aws_eks_cluster.simple_eks.certificate_authority[0].data
 }
