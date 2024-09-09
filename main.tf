@@ -18,12 +18,16 @@ provider "aws" {
 data "aws_region" "current" {}
 
 # Filter out local zones, which are not currently supported 
-# with managed node groups
+# with managed node groups, and zone IDs which for some 
+# unspecified-by-AWS reason are NOT ALLOWED to be part of 
+# your EKS cluster.
 data "aws_availability_zones" "available" {
   filter {
     name   = "opt-in-status"
     values = ["opt-in-not-required"]
   }
+  state = "available"
+  exclude_zone_ids = ["use1-az3", "usw1-az2", "cac1-az3"]
 }
 
 data "aws_caller_identity" "eks_creator" {}
@@ -97,6 +101,7 @@ resource "local_sensitive_file" "ssh_private_key" {
 resource "aws_vpc" "simple_eks" {
   count = local.create_vpc ? 1 : 0
   cidr_block = var.aws_vpc_cidr
+  enable_dns_hostnames = true
   tags = {
     Name = local.unique_name
   }
@@ -123,7 +128,8 @@ resource "aws_subnet" "eks_public" {
   availability_zone = data.aws_availability_zones.available.names[count.index]
   tags = merge(var.eks_subnets_public_tags,
     {
-      Name = "${local.unique_name}-public-${count.index}"
+      "Name" = "${local.unique_name}-public-${count.index}"
+      "kubernetes.io/role/elb" = 1
     }
   )
 }
@@ -157,7 +163,8 @@ resource "aws_subnet" "eks_private" {
   availability_zone = data.aws_availability_zones.available.names[count.index]
   tags = merge(var.eks_subnets_private_tags,
     {
-      Name = "${local.unique_name}-private-${count.index}"
+      "Name" = "${local.unique_name}-private-${count.index}"
+      "kubernetes.io/role/internal-elb" = 1
     }
   )
 }
@@ -170,6 +177,12 @@ resource "aws_nat_gateway" "eks_private" {
   count = local.create_subnets_private ? 1 : 0
   subnet_id = local.subnets_public[0]
   allocation_id = aws_eip.eks_private_nat[0].id
+  tags = {
+    Name = "${local.unique_name}-private"
+  }
+}
+
+data "aws_nat_gateway" "eks_private" {
   tags = {
     Name = "${local.unique_name}-private"
   }
@@ -204,6 +217,7 @@ resource "aws_security_group" "eks_access" {
 }
 
 resource "aws_vpc_security_group_egress_rule" "allow_all_outbound" {
+  count = local.create_eks_admin_sg ? 1 : 0
   security_group_id = local.eks_admin_sg
   cidr_ipv4 = "0.0.0.0/0"
   ip_protocol = "-1"
@@ -269,7 +283,7 @@ resource "aws_eks_cluster" "simple_eks" {
 
   vpc_config {
     subnet_ids = local.subnets_public
-    public_access_cidrs = [ local.admin_ip_cidr ]
+    public_access_cidrs = flatten([ local.admin_ip_cidr, formatlist("%s/32", data.aws_nat_gateway.eks_private[*].public_ip)])
   }
 
   version = var.eks_k8s_version == "" ? null : var.eks_k8s_version
