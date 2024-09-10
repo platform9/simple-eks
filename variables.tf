@@ -84,9 +84,9 @@ variable "eks_admin_sg" {
 }
 
 variable "eks_ingress_ports" {
-  description = "List of TCP ports to allow in the EKS cluster's security groups (defaults to 80 and 443)."
+  description = "List of TCP ports to allow in the admin security group (defaults to 22, 80, and 443)."
   type = list(number)
-  default = [ 80, 443 ]
+  default = [ 22, 80, 443 ]
 }
 
 variable "eks_debug_instance_type" {
