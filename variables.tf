@@ -77,28 +77,6 @@ variable "eks_subnets_private_tags" {
   default = {}
 }
 
-variable "eks_admin_sg" {
-  description = "ID of a pre-created security group with the necessary rules to allow the admin IP access to the debug instance, if one exists.  If left empty, one will be created."
-  type = string
-  default = ""
-}
-
-variable "eks_ingress_ports" {
-  description = "List of TCP ports to allow in the admin security group (defaults to 22, 80, and 443)."
-  type = list(number)
-  default = [ 22, 80, 443 ]
-}
-
-variable "eks_debug_instance_type" {
-  type = string
-  default = "t3.small"
-}
-
-variable "eks_debug_instance_ami" {
-  type = string
-  default = ""
-}
-
 variable "eks_k8s_version" {
   type = string
   default = "1.30"
@@ -115,7 +93,7 @@ variable "eks_ec2_nodegroup_instancetype" {
 }
 
 variable "eks_nodegroup_public" {
-  description = "Whether the node group should be created in public subnets.  If false (the default), it will be created in private subnets."
+  description = "Whether the node group should be created in public subnets (defaults to false).  If false, it will be created in private subnets."
   type = bool
   default = false
 }
@@ -130,4 +108,33 @@ variable "eks_additional_admin_arns" {
   description = "A list of additional role or user ARNs to create EKS access entries for (defaults to an empty list; the identity used by the Terraform runner will be added by AWS automatically)."
   type = list(string)
   default = []
+}
+
+variable "create_debug_instance" {
+  description = "Whether to create an instance in a public subnet -- e.g. for debugging or as a jump host to private-subnet worker nodesm (defaults to false)."
+  type = bool
+  default = false
+}
+
+variable "eks_debug_instance_type" {
+  type = string
+  default = "t3.small"
+}
+
+variable "eks_debug_instance_ami" {
+  description = "The AMI to use for the debug instance, if any (defaults to the empty string).  If left empty, the latest x86_64 Amazon Linux 2023 AMI is used."
+  type = string
+  default = ""
+}
+
+variable "eks_debug_sg" {
+  description = "ID of a pre-created security group with the necessary rules to allow the admin IP access to the debug instance, if one exists.  If left empty, one will be created if a debug instance is to be created."
+  type = string
+  default = ""
+}
+
+variable "eks_debug_sg_additional_ports" {
+  description = "List of TCP ports in addition to port 22 (SSH) to allow in the admin security group (defaults to 80 and 443).  If a pre-created debug security group is specified, this is ignored."
+  type = list(number)
+  default = [ 80, 443 ]
 }

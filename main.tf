@@ -30,6 +30,10 @@ data "aws_availability_zones" "available" {
   exclude_zone_ids = ["use1-az3", "usw1-az2", "cac1-az3"]
 }
 
+data "aws_ssm_parameter" "al2023_eks" {
+  name = "/aws/service/eks/optimized-ami/${var.eks_k8s_version}/amazon-linux-2023/x86_64/standard/recommended/image_id"
+}
+
 data "aws_caller_identity" "eks_creator" {}
 
 data "aws_vpc" "simple_eks" {
@@ -39,11 +43,6 @@ data "aws_vpc" "simple_eks" {
 data "http" "admin_ip" {
   url = "https://whatismyip.akamai.com/"
 }
-
-data "aws_ssm_parameter" "al2023_eks" {
-  name = "/aws/service/eks/optimized-ami/${var.eks_k8s_version}/amazon-linux-2023/x86_64/standard/recommended/image_id"
-}
-
 
 resource "random_string" "unique_name_prefix" {
   length = 8
@@ -73,8 +72,8 @@ locals {
   vpc_cidr = data.aws_vpc.simple_eks.cidr_block
   subnets_public = local.create_subnets_public ? aws_subnet.eks_public[*].id : var.eks_subnets_public
   subnets_private = local.create_subnets_private ? aws_subnet.eks_private[*].id : var.eks_subnets_private
-  create_eks_admin_sg = var.eks_admin_sg == "" ? true : false
-  eks_admin_sg = local.create_eks_admin_sg ? aws_security_group.eks_access[0].id : var.eks_admin_sg
+  create_eks_debug_sg = var.eks_debug_sg == "" && var.create_debug_instance ? true : false
+  eks_debug_sg = local.create_eks_debug_sg ? aws_security_group.eks_debug[0].id : var.eks_debug_sg
   create_eks_ssh_keypair = var.eks_ec2_ssh_keypair == "" ? true : false
   eks_ec2_ssh_keypair = coalesce(var.eks_ec2_ssh_keypair,aws_key_pair.eks_instance[0].key_name)
 }
@@ -186,6 +185,7 @@ data "aws_nat_gateway" "eks_private" {
   tags = {
     Name = "${local.unique_name}-private"
   }
+  depends_on = [ aws_nat_gateway.eks_private ]
 }
 
 resource "aws_route_table" "eks_private_nat" {
@@ -208,37 +208,6 @@ resource "aws_route_table_association" "eks_private_nat" {
   count = local.create_subnets_private ? length(local.subnets_private) : 0
   subnet_id = local.subnets_private[count.index]
   route_table_id = aws_route_table.eks_private_nat[0].id
-}
-
-resource "aws_security_group" "eks_access" {
-  count = local.create_eks_admin_sg ? 1 : 0
-  name = "${local.unique_name}-admin"
-  vpc_id = local.vpc_id
-}
-
-resource "aws_vpc_security_group_egress_rule" "allow_all_outbound" {
-  count = local.create_eks_admin_sg ? 1 : 0
-  security_group_id = local.eks_admin_sg
-  cidr_ipv4 = "0.0.0.0/0"
-  ip_protocol = "-1"
-}
-
-resource "aws_vpc_security_group_ingress_rule" "admin_ssh_inbound" {
-  count = local.create_eks_admin_sg ? 1 : 0
-  security_group_id = local.eks_admin_sg
-  cidr_ipv4 = local.admin_ip_cidr
-  from_port = 22
-  to_port = 22
-  ip_protocol = "tcp"
-}
-
-resource "aws_vpc_security_group_ingress_rule" "eks_inbound" {
-  for_each = local.create_eks_admin_sg ? toset([for port in var.eks_ingress_ports: tostring(port)]) : toset([])
-  security_group_id = local.eks_admin_sg
-  cidr_ipv4 = local.admin_ip_cidr
-  from_port = each.key
-  to_port = each.key
-  ip_protocol = "tcp"
 }
 
 data "aws_iam_policy_document" "eks_controlplane_assumerole" {
@@ -349,8 +318,6 @@ resource "aws_eks_node_group" "ec2" {
   subnet_ids = var.eks_nodegroup_public ? local.subnets_public : local.subnets_private
 }
 
-# It should not be necessary to uncomment the following except to debug EKS worker nodes in a private subnet.
-/*
 data "aws_ami" "al2023" {
   most_recent = true
 
@@ -362,14 +329,45 @@ data "aws_ami" "al2023" {
   owners = ["amazon"]
 }
 
+resource "aws_security_group" "eks_debug" {
+  count = local.create_eks_debug_sg ? 1 : 0
+  name = "${local.unique_name}-admin"
+  vpc_id = local.vpc_id
+}
+
+resource "aws_vpc_security_group_egress_rule" "debug_allow_all_outbound" {
+  count = local.create_eks_debug_sg ? 1 : 0
+  security_group_id = local.eks_debug_sg
+  cidr_ipv4 = "0.0.0.0/0"
+  ip_protocol = "-1"
+}
+
+resource "aws_vpc_security_group_ingress_rule" "debug_ssh_inbound" {
+  count = local.create_eks_debug_sg ? 1 : 0
+  security_group_id = local.eks_debug_sg
+  cidr_ipv4 = local.admin_ip_cidr
+  from_port = 22
+  to_port = 22
+  ip_protocol = "tcp"
+}
+
+resource "aws_vpc_security_group_ingress_rule" "debug_additional_ports_inbound" {
+  for_each = local.create_eks_debug_sg ? toset([for port in var.eks_debug_sg_additional_ports: tostring(port)]) : toset([])
+  security_group_id = local.eks_debug_sg
+  cidr_ipv4 = local.admin_ip_cidr
+  from_port = each.key
+  to_port = each.key
+  ip_protocol = "tcp"
+}
+
 resource "aws_instance" "eks_debug" {
+  count = var.create_debug_instance ? 1 : 0
   ami = coalesce(var.eks_debug_instance_ami,data.aws_ami.al2023.id)
   instance_type = var.eks_debug_instance_type
   subnet_id = local.subnets_public[0]
   key_name = local.eks_ec2_ssh_keypair
-  security_groups = [ local.eks_admin_sg ]
+  security_groups = [ local.eks_debug_sg ]
   tags = {
     Name = "${local.unique_name}-debug"
   }
 }
-*/

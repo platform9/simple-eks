@@ -22,8 +22,12 @@ output "aws_eks_region" {
   value = regex(".*\\.([a-z0-9-]*)\\Q.eks.amazonaws.com\\E", aws_eks_cluster.simple_eks.endpoint)[0]
 }
 
-output "awk_eks_cluster_security_group" {
-  value = aws_eks_cluster.simple_eks.cluster_security_group_id
+output "aws_eks_cluster_security_groups" {
+  value = aws_eks_cluster.simple_eks.vpc_config[*].cluster_security_group_id
+}
+
+output "eks_debug_instance_ip" {
+  value = var.create_debug_instance ? aws_instance.eks_debug[0].public_ip : "n/a"
 }
 
 output "kubeconfig_certificate_authority_data" {
